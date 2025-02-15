@@ -1,9 +1,11 @@
 import requests
 import sqlite3
+import csv
 from bs4 import BeautifulSoup
 
 # URL of the page with the latest mathematics articles
 ARXIV_URL = "https://arxiv.org/list/math/recent"
+CSV_FILENAME = "arxiv_articles.csv"
 
 # Function to create the database
 def create_db():
@@ -85,11 +87,20 @@ def save_to_db(articles):
     conn.commit()
     conn.close()
 
+# Function to save data to CSV
+def save_to_csv(articles):
+    with open(CSV_FILENAME, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["arXiv ID", "Title", "Authors", "Subjects", "PDF Link"])  # Header
+        writer.writerows(articles)
+    print(f"Saved {len(articles)} articles to {CSV_FILENAME}")
+
 if __name__ == "__main__":
     create_db()
     articles = scrape_arxiv()
     if articles:
         save_to_db(articles)
-        print(f"Saved {len(articles)} articles to the database.")
+        save_to_csv(articles)
+        print(f"Saved {len(articles)} articles to the database and CSV file.")
     else:
         print("Failed to retrieve articles.")
