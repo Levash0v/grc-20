@@ -1,10 +1,12 @@
 import requests
 import sqlite3
 import csv
+import re
+from datetime import datetime
 from bs4 import BeautifulSoup
 
-# URL of the page with the latest mathematics articles
-ARXIV_URL = "https://arxiv.org/list/math/recent"
+# Updated URL to fetch more articles
+ARXIV_URL = "https://arxiv.org/list/math/recent?skip=0&show=2000"
 CSV_FILENAME = "arxiv_articles.csv"
 
 # Function to create the database
@@ -18,11 +20,22 @@ def create_db():
             title TEXT,
             authors TEXT,
             subjects TEXT,
+            pub_date TEXT,
             pdf_link TEXT
         )
     ''')
     conn.commit()
     conn.close()
+
+# Function to parse publication date into YYYY-MM-DD format
+def parse_date(raw_date):
+    """Extracts and converts a raw date string like 'Fri, 14 Feb 2025 (showing 191 of 191 entries )' to '2025-02-14'."""
+    cleaned_date = re.sub(r"\s*\(.*\)", "", raw_date)  # Remove everything in parentheses
+    try:
+        parsed_date = datetime.strptime(cleaned_date, "%a, %d %b %Y")
+        return parsed_date.strftime("%Y-%m-%d")  # Convert to YYYY-MM-DD format
+    except ValueError:
+        return "Unknown"  # Fallback if parsing fails
 
 # Function to scrape the page
 def scrape_arxiv():
@@ -40,33 +53,42 @@ def scrape_arxiv():
         print("Article container not found")
         return []
 
-    # Process all articles
-    for dt, dd in zip(articles_container.find_all("dt"), articles_container.find_all("dd")):
-        # Find links inside <dt>
-        links = dt.find_all("a")
-        if len(links) < 2:
-            continue  # Skip if the second <a> is missing
+    # Iterate through each publication date and corresponding articles
+    current_pub_date = "Unknown"
+    article_elements = articles_container.find_all(["h3", "dt", "dd"])
 
-        arxiv_id = links[1].text.strip()  # Article ID
-        pdf_link = "https://arxiv.org" + links[2]["href"] if len(links) > 2 else "No link"
+    for element in article_elements:
+        if element.name == "h3":
+            # If the element is <h3>, update the current publication date
+            current_pub_date = parse_date(element.text.strip())  # Convert to YYYY-MM-DD
+        elif element.name == "dt":
+            dt = element
+            dd = dt.find_next_sibling("dd")
+            if not dd:
+                continue
 
-        # Article title
-        title_tag = dd.find("div", class_="list-title mathjax")
-        title = title_tag.text.replace("Title:", "").strip() if title_tag else "No title"
+            # Find links inside <dt>
+            links = dt.find_all("a")
+            if len(links) < 2:
+                continue  # Skip if the second <a> is missing
 
-        # Article authors
-        authors_tag = dd.find("div", class_="list-authors")
-        authors = authors_tag.text.replace("Authors:", "").strip() if authors_tag else "No authors"
+            arxiv_id = links[1].text.strip()  # Article ID
+            pdf_link = "https://arxiv.org" + links[2]["href"] if len(links) > 2 else "No link"
 
-        # Article subjects
-        subjects_tag = dd.find("div", class_="list-subjects")
-        if subjects_tag:
-            subjects = subjects_tag.text.replace("Subjects:", "").strip()
-            subjects = " ".join(subjects.split())  # Remove extra spaces and line breaks
-        else:
-            subjects = "No categories"
+            # Article title
+            title_tag = dd.find("div", class_="list-title mathjax")
+            title = title_tag.text.replace("Title:", "").strip() if title_tag else "No title"
 
-        articles.append((arxiv_id, title, authors, subjects, pdf_link))
+            # Article authors
+            authors_tag = dd.find("div", class_="list-authors")
+            authors = authors_tag.text.replace("Authors:", "").strip() if authors_tag else "No authors"
+
+            # Article subjects
+            subjects_tag = dd.find("div", class_="list-subjects")
+            subjects = " ".join(subjects_tag.text.replace("Subjects:", "").strip().split()) if subjects_tag else "No categories"
+
+            # Save article data
+            articles.append((arxiv_id, title, authors, subjects, current_pub_date, pdf_link))
 
     return articles
 
@@ -78,8 +100,8 @@ def save_to_db(articles):
     for article in articles:
         try:
             cursor.execute('''
-                INSERT INTO articles (arxiv_id, title, authors, subjects, pdf_link)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO articles (arxiv_id, title, authors, subjects, pub_date, pdf_link)
+                VALUES (?, ?, ?, ?, ?, ?)
             ''', article)
         except sqlite3.IntegrityError:
             print(f"Article {article[0]} is already in the database")
@@ -91,7 +113,7 @@ def save_to_db(articles):
 def save_to_csv(articles):
     with open(CSV_FILENAME, mode="w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        writer.writerow(["arXiv ID", "Title", "Authors", "Subjects", "PDF Link"])  # Header
+        writer.writerow(["arXiv ID", "Title", "Authors", "Subjects", "Publication Date", "PDF Link"])  # Header
         writer.writerows(articles)
     print(f"Saved {len(articles)} articles to {CSV_FILENAME}")
 
