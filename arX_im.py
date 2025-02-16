@@ -1,8 +1,8 @@
 import requests
 import sqlite3
 import csv
-import re
 import os
+import re
 from datetime import datetime
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
@@ -45,12 +45,10 @@ def parse_date(raw_date):
         return "Unknown"
 
 def get_background_color(category):
-    category_colors = {
-        "math.RT": (200, 100, 100),
-        "math.AG": (100, 200, 100),
-        "math.PR": (100, 100, 200),
-    }
-    return category_colors.get(category, (255, 255, 255))
+    r = sum(ord(c) for c in category) % 256
+    g = sum(ord(c) * 3 for c in category) % 256
+    b = sum(ord(c) * 7 for c in category) % 256
+    return (r, g, b)
 
 def generate_image(title, authors, categories, arxiv_id):
     main_category = categories.split(";")[0].strip().split("(")[-1][:-1]
